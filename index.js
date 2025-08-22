@@ -13,19 +13,34 @@ const app = express();
 const port = process.env.PORT || 3000; 
 
 // ---------------------------------------------------------------------
-// ✅ تكوين CORS محسّن باستخدام اقتراحك الذكي
+// ✅ تكوين CORS محسّن باستخدام اقتراح صديقك الذكي
 // ---------------------------------------------------------------------
 const allowedOrigins = [
     'http://localhost:5173', // للواجهة الأمامية المحلية (Vite)
     'http://localhost:3000', // للـ Backend المحلي (إذا كان هناك طلبات من هنا)
-    // لا حاجة لإضافة روابط Vercel الأخرى يدويًا بفضل `endsWith('.vercel.app')`
+    'https://quiz-time-294ri44we-dr-ahmed-alenanys-projects.vercel.app', // رابط Vercel الذي ذكرته صديقك
+    'https://quiz-puplic-production.up.railway.app', // رابط الـ Backend المنشور على Railway
+    // يمكنك إضافة أي نطاقات Vercel أخرى هنا إذا كانت تتغير، ولكن `endsWith('.vercel.app')` سيغطيها
 ];
 
 app.use(cors({
-  origin: "https://quiz-time-294ri44we-dr-ahmed-alenanys-projects.vercel.app", 
-  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"]
+    origin: function (origin, callback) {
+        // السماح بالطلبات إذا كان الأصل (origin) موجودًا في قائمة allowedOrigins
+        // أو إذا كان ينتهي بـ '.vercel.app' (لتغطية جميع نطاقات Vercel)
+        // أو إذا لم يكن هناك أصل (لطلبات مثل Postman أو نفس الأصل على السيرفر)
+        if (!origin || allowedOrigins.includes(origin) || origin.endsWith('.vercel.app')) {
+            callback(null, true);
+        } else {
+            // رفض الطلب إذا لم يطابق أي من القواعد
+            callback(new Error(`Not allowed by CORS: ${origin}`));
+        }
+    },
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'], // السماح بأفعال HTTP الضرورية
+    allowedHeaders: ['Content-Type', 'Authorization'], // السماح برؤوس محددة، مهم للمصادقة المستقبلية
+    credentials: true, // مهم إذا كنا سنرسل cookies أو authorization headers في المستقبل
+    optionsSuccessStatus: 204 // استجابة لطلب preflight (لتحسين أداء المتصفح)
 }));
+
 
 app.use(express.json({ limit: '10mb' })); // لتمكين تحليل JSON في الطلبات
 app.use(express.urlencoded({ extended: true, limit: '10mb' })); // لتمكين تحليل URL-encoded bodies
@@ -137,7 +152,7 @@ const getGenerationPrompt = (prompt, subject, parsedSettings, fileContent, image
 # Image-Based Question Instructions
 - You have been provided with ${imagesCount} image(s). They are 0-indexed.
 - ${instructionText}
-- For these questions, the 'question' text must clearly refer to to the image (e.g., "Based on the first X-ray...", "In the image of the cell (image 1)...").
+- For these questions, the 'question' text must clearly refer to the image (e.g., "Based on the first X-ray...", "In the image of the cell (image 1)...").
 - You MUST set 'refersToUploadedImageIndex' to the 0-based index of the image being used for all questions that use an image.`;
         }
     }
