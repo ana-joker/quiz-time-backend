@@ -1,34 +1,37 @@
-require('dotenv').config();
+// index.js
+require('dotenv').config(); // تحميل متغيرات البيئة من ملف .env
 
 const express = require('express');
 const cors = require('cors');
 const multer = require('multer');
-const pdf = require('pdf-parse');
+const pdf = require('pdf-parse'); // مكتبة لمعالجة PDF
 
 // ثوابت سلامة من حزمة Gemini
 const { HarmBlockThreshold, HarmCategory } = require('@google/generative-ai');
+// استيراد مدير مفاتيح API الذي أنشأناه
 const { getGeminiAIInstance, updateApiKeyStatus } = require('./apiKeysManager');
 
 const app = express();
 
-// Railway يحدد المنفذ عبر ENV
+// Railway يحدد المنفذ عبر ENV، أو نستخدم 3000 كافتراضي محلي
 const port = process.env.PORT || 3000;
 
 /* ------------------------------------------------------------------
    ✅ CORS configuration (يدعم Vercel + Railway + localhost)
 ------------------------------------------------------------------- */
 
-// ضع هنا كل الأصول (frontends) المعروفة صراحةً
+// قائمة الأصول (frontends) المسموح لها بالوصول إلى الـ Backend
 const allowedOrigins = [
-  'http://localhost:5173', // Vite
-  'http://localhost:3000', // لو عندك واجهة محلية
-  'https://quiz-time-294ri44we-dr-ahmed-alenanys-projects.vercel.app', // مشروع Vercel الحالي
-  'https://quiz-puplic-production.up.railway.app', // (لو حصل طلبات cross بين نفس الدومين)
+  'http://localhost:5173', // بيئة تطوير Vite
+  'http://localhost:3000', // قد يكون للواجهة الأمامية المحلية أو لأدوات الاختبار
+  'https://quiz-time-294ri44we-dr-ahmed-alenanys-projects.vercel.app', // رابط Vercel الخاص بك
+  // 'https://quiz-puplic-production.up.railway.app', // هذا الرابط للـ Backend نفسه، لا يستخدم كـ origin
+  // أضف أي روابط Vercel أو Railway أخرى هنا إذا لزم الأمر
 ];
 
-// دوال مساعدة للتحقق من الدومين بشكل ديناميكي
+// دالة مساعدة للتحقق من الدومين بشكل ديناميكي (تشمل Vercel و Railway)
 const isAllowedDynamic = (origin) => {
-  if (!origin) return true; // للسماح بأدوات مثل curl و Postman
+  if (!origin) return true; // السماح بالطلبات التي لا تحتوي على Origin (مثل Postman/curl)
   try {
     const url = new URL(origin);
     const host = url.hostname;
@@ -36,7 +39,7 @@ const isAllowedDynamic = (origin) => {
     // السماح لأي deploy من Vercel
     if (host.endsWith('.vercel.app')) return true;
 
-    // السماح بأي subdomain من Railway
+    // السماح بأي subdomain من Railway (لأي مشاريع أخرى قد تتصل)
     if (host.endsWith('.up.railway.app')) return true;
 
     // السماح بالقائمة البيضاء الصريحة
@@ -44,64 +47,70 @@ const isAllowedDynamic = (origin) => {
 
     return false;
   } catch {
-    return false;
+    return false; // إذا كان الـ origin غير صالح كـ URL
   }
 };
 
+// Middleware لتحديد رؤوس CORS بشكل ديناميكي
 app.use((req, res, next) => {
-  // CORS الديناميكي
   const origin = req.headers.origin;
   if (isAllowedDynamic(origin)) {
-    res.header('Access-Control-Allow-Origin', origin || '*');
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  } else if (!origin) {
+    // إذا لم يكن هناك origin (مثل Postman)، اسمح بالوصول
+    res.setHeader('Access-Control-Allow-Origin', '*');
   }
-  res.header(
+  res.setHeader(
     'Access-Control-Allow-Methods',
     'GET,POST,PUT,PATCH,DELETE,OPTIONS'
   );
-  res.header(
+  res.setHeader(
     'Access-Control-Allow-Headers',
     'Content-Type, Authorization, X-Requested-With'
   );
-  // لو بتحتاج Cookies مع CORS (حالياً مش لازم):
-  // res.header('Access-Control-Allow-Credentials', 'true');
+  // res.setHeader('Access-Control-Allow-Credentials', 'true'); // فعلها لو هتستخدم كوكيز عبر الدومينات
 
-  // التعامل مع الـ preflight بسرعة
+  // التعامل مع الـ preflight (طلبات OPTIONS) بسرعة
   if (req.method === 'OPTIONS') {
     return res.sendStatus(204);
   }
   next();
 });
 
-// لو حابب كمان تستخدم cors() كطبقة إضافية (مش ضروري بعد الهاندلر اللي فوق)
-// بس هنخليه نسخه آمنة تقبل نفس المنطق
+// استخدام مكتبة cors() كطبقة إضافية، مع نفس منطق الـ origin
+// هذا يضمن أن Express يتعامل مع الـ OPTIONS requests بشكل صحيح للمسارات المحددة
 app.use(
   cors({
-    origin: (origin, cb) => {
-      if (isAllowedDynamic(origin)) return cb(null, true);
-      return cb(new Error('Not allowed by CORS'));
+    origin: (origin, callback) => {
+      if (isAllowedDynamic(origin)) {
+        callback(null, true);
+      } else {
+        // رفض الطلب إذا لم يكن Origin مسموحًا به
+        callback(new Error(`Not allowed by CORS: ${origin}`));
+      }
     },
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
     // credentials: true, // فعلها لو هتستخدم كوكيز عبر الدومينات
-    preflightContinue: false,
-    optionsSuccessStatus: 204,
+    preflightContinue: false, // لا تمرر طلبات OPTIONS إلى الـ handlers الأخرى
+    optionsSuccessStatus: 204, // رمز الحالة لنجاح طلب OPTIONS
   })
 );
 
-// احتياطي: تفعيل رد الـ OPTIONS لكل المسارات
-app.options('*', cors());
+// لا تقم بإضافة app.use("https://...") أو app.get("https://...") هنا
+// هذا هو السبب المحتمل لـ TypeError.
 
 /* ------------------------------------------------------------------
    Parsers & Uploads
 ------------------------------------------------------------------- */
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(express.json({ limit: '10mb' })); // لدعم JSON bodies
+app.use(express.urlencoded({ extended: true, limit: '10mb' })); // لدعم URL-encoded bodies
 
-// تخزين الملفات في الذاكرة (مؤقت)
+// إعداد Multer لتخزين الملفات في الذاكرة (مؤقت)
 const upload = multer({ storage: multer.memoryStorage() });
 
 /* ------------------------------------------------------------------
-   ثابت لأنواع الأسئلة
+   ثوابت لأنواع الأسئلة
 ------------------------------------------------------------------- */
 const allQuestionTypes = [
   'MCQ',
@@ -112,7 +121,7 @@ const allQuestionTypes = [
 ];
 
 /* ------------------------------------------------------------------
-   Utils لمعالجة الملفات
+   Utils لمعالجة الملفات (تستقبل Buffer هنا)
 ------------------------------------------------------------------- */
 const fileToGenerativePart = async (fileBuffer, mimeType) => {
   return {
@@ -142,7 +151,7 @@ const getDocumentText = async (fileBuffer, mimeType) => {
 };
 
 /* ------------------------------------------------------------------
-   Schema لردّ Gemini
+   Schema لردّ Gemini (محدد بوضوح)
 ------------------------------------------------------------------- */
 const geminiResponseSchema = {
   type: 'OBJECT',
@@ -212,7 +221,7 @@ const geminiResponseSchema = {
 };
 
 /* ------------------------------------------------------------------
-   Prompt Generator
+   Prompt Generator (مفصل وشامل لبروتوكول AI Execution Protocol)
 ------------------------------------------------------------------- */
 const getGenerationPrompt = (
   prompt,
@@ -277,19 +286,85 @@ Your primary function is to act as an expert examinations author. You will gener
 Analyze the provided 'User Content' to infer its primary domain (e.g., Medical, Engineering, General Science, Humanities, etc.). Adapt your role and question generation style to match the rigor, terminology, and typical question patterns of that specific domain.
 
 ## Rules
-1.  **Domain Inference:** Before generating any questions, perform a rapid internal analysis of the 'User Content'.
-2.  **Role Adaptation:** Use domain-specific tone and terminology.
-3.  **Quality:** Use clear, precise domain-specific language. Avoid ambiguity.
+1.  **Domain Inference:** Before generating any questions, perform a rapid internal analysis of the 'User Content'. Identify keywords, concepts, and typical structures to determine if it is:
+    -   **Medical Content:** Characterized by medical terminology, diseases, treatments, anatomy, physiology, clinical cases, patient scenarios.
+    -   **Engineering Content:** Characterized by technical specifications, design principles, calculations, systems, processes, materials, schematics.
+    -   **General Science Content:** Characterized by scientific principles, theories, experiments, natural phenomena, formulas (but not necessarily complex engineering applications).
+    -   **Other (Default):** If none of the above, treat it as general academic or factual content.
+2.  **Role Adaptation:**
+    -   **If Medical Content:** Adopt the role of an "expert medical examinations author specializing in the provided medical sub-domain (e.g., Gynecology, Cardiology, etc., infer from text if not explicit)". Focus on clinical reasoning, diagnosis, management, pathophysiology, and high-stakes information. Case Scenarios are highly applicable.
+    -   **If Engineering Content:** Adopt the role of an "expert engineering examinations author specializing in the provided engineering sub-domain". Focus on problem-solving, application of formulas, system analysis, design considerations, and technical specifications. Case Scenarios might be less common but can be adapted for design problems or failure analysis.
+    -   **If General Science Content:** Adopt the role of an "expert science educator". Focus on understanding concepts, principles, experimental design, and data interpretation. Case Scenarios are less common.
+    -   **If Other (Default):** Adopt the role of a "general academic quiz master". Focus on factual recall, conceptual understanding, and logical inference.
+3.  **Terminology and Tone:** Use domain-specific terminology accurately and maintain the appropriate academic/professional tone for the inferred domain. Avoid mixing terminologies or styles from different domains.
+4.  **Absolute Prohibition of Textual References in Standalone Questions:**
+    -   **Forbidden phrases in Question Stem (Standalone):** "According to the text", "Based on the provided content", "As per the document", "In the given text", "From the information provided", "According to the diagnostic criteria mentioned", "According to the study", "as mentioned in the text", "per the text", "as described in the text", "from the text", "in the text", "as per the information", "based on the information".
+    -   **Sole Exception:** These phrases ARE allowed within Case Scenario questions to refer to the "case" itself (e.g., "Based on this case", "According to the patient's presentation"), NOT the general text.
 
 # Protocol 1: Content Generation (Multi-Type Questions & Case Scenarios)
-- Follow the exact structures for MCQ, TrueFalse, ShortAnswer, Ordering, Matching as previously described.
-- All parts must be derived from the provided content.
+## Objective
+Generate questions based on the user's configuration, strictly adhering to the inferred domain's rigor, terminology, and content sourcing, and **incorporating ALL requested question types.**
 
-# Protocol 2: Answer Distribution Correction (Deterministic & Balanced)
-- Internally rebalance answer positions to avoid bias.
+## Rules for Question Types (General):
+1.  **Structure:** Each question must adhere to the specific structure of its \`questionType\`.
+2.  **Content Adherence:** All parts of the question (stem, options, correct answer, distractors, case description) must be directly derived or logically inferred *only* from the provided content. No outside information.
+3.  **Quality:** Use clear, precise domain-specific language. Avoid ambiguity.
+
+## Specific Rules for Each Question Type:
+1.  **MCQ (Multiple Choice Questions):**
+    -   **Question Stem:** Clear, concise problem or mini-case.
+    -   **Options:** Exactly 4 plausible options (A, B, C, D). One is the single best correct answer; three are plausible distractors.
+    -   **\`correctAnswer\`:** The exact string of the correct option.
+2.  **TrueFalse:**
+    -   **Question Stem:** A statement that is either true or false based on the content.
+    -   **Options:** Must be \`["True", "False"]\`.
+    -   **\`correctAnswer\`:** Either "True" or "False".
+3.  **ShortAnswer:**
+    -   **Question Stem:** A direct question requiring a concise factual answer.
+    -   **Options:** Empty array \`[]\`.
+    -   **\`correctAnswer\`:** The precise factual string answer.
+4.  **Ordering:**
+    -   **Question Stem:** A prompt asking the user to arrange a list of items in a specific logical or chronological order.
+    -   **Options:** An array of strings representing the items to be ordered (unshuffled).
+    -   **\`correctAnswer\`:** An array of strings representing the items in the *correct* order.
+5.  **Matching:**
+    -   **Question Stem:** A prompt asking the user to match items from one list (prompts) to another (answers).
+    -   **Options:** An array of strings representing the 'prompts' (e.g., definitions, terms).
+    -   **\`matchOptions\`:** An array of strings representing the 'answers' (e.g., corresponding terms, concepts).
+    -   **\`correctAnswer\`:** An array of objects \`[{ prompt: string, answer: string }]\` representing the correct pairs.
+
+## Rules for Case Scenarios (Applicability depends on inferred domain):
+1.  **Structure:** Each Case Scenario MUST be followed by 2 to 3 associated questions (of the requested types) based *solely* on that case.
+2.  **Vignette/Scenario Description:** Detailed, realistic (3-8 lines) patient description for medical, or a detailed problem/system description for engineering/science. Include relevant context, data, or observations. Narration must be fluid and integrated.
+3.  **Content Adherence (Vignette):** All details in the scenario description must be derived *only* from the provided content. You may invent non-factual scenario details (e.g., specific names, dates for context) to link concepts from the text, but you CANNOT invent domain-specific facts (diagnoses, specific results, treatments, technical specifications) not mentioned in the provided text.
+
+# Protocol 2: Internal Answer Distribution Correction (Deterministic & Balanced)
+## Objective
+After generating all MCQs (including True/False treated as MCQs), you MUST internally analyze and modify the correct answer positions to ensure a deterministic and balanced distribution for MCQs (and True/False), minimizing excessive repetition of any single position within short ranges.
+
+## Process (Step-by-Step Logic - Internal Execution for MCQ/TrueFalse):
+1.  **Compile relevant MCQs:** Create an internal ordered list of ALL MCQs and True/False questions generated.
+2.  **Iterate and Adjust:** Start analyzing from the 4th question in this compiled list (index 3 if 0-indexed).
+    For each current question (let's call it question \`i\`, where \`i >= 3\`):
+    a.  Define a 4-question window: Questions from \`i-3\` to \`i\`.
+    b.  Count the frequency of each answer position (A, B, C, D) within this 4-question window. (For True/False, 'True' can be A, 'False' can be B).
+    c.  Identify if any single answer position \`P\` has occurred more than twice in this window.
+    d.  If such a position \`P\` is found:
+        i.   Locate the *first* question \`j\` within the window (\`i-3 <= j <= i\`) whose correct answer position is \`P\`.
+        ii.  Determine a \`NewPos\` (the deterministically optimized new position):
+            1.  Calculate the frequency of each position (A, B, C, D) in the 4-question window *excluding* question \`j\` itself.
+            2.  Find the position with the *lowest* frequency among the remaining positions.
+            3.  If multiple positions have the same lowest frequency, choose the alphabetically earliest position (A before B, B before C, etc.).
+            4.  This position is \`NewPos\`.
+        iii. **Crucially:** Internally swap the *content* of the current correct option (at position \`P\`) with the *content* of the option at \`NewPos\` within question \`j\`'s options array.
+        iv.  Update question \`j\`'s \`correctAnswer\` (string) to reflect the new option content at \`NewPos\`.
+        v.   Update question \`j\`'s \`correctAnswerIndex\` to reflect the new index of \`NewPos\`.
+        vi.  (Self-correction): Re-evaluate the window after this adjustment if needed for subsequent questions, ensuring the logic remains consistent.
+    e.  Proceed to the next question (\`i+1\`) and repeat.
+3.  **Ensure Full Balance:** Continue this process until the end of the compiled question list, guaranteeing a balanced and deterministic distribution of correct answers across all relevant questions.
 
 # Final Generation Task
-- Output a single JSON object adhering to the provided schema.
+Based on the user's provided content and settings, and after performing the internal content generation and answer distribution correction, generate a single JSON object that strictly adheres to the provided schema. Do not include any extra text, formatting, or markdown backticks.
 
 ## User Configuration
 - Subject: '${subject || 'the provided content'}'
@@ -300,7 +375,11 @@ Analyze the provided 'User Content' to infer its primary domain (e.g., Medical, 
 - **Standalone MCQs to Generate**: ${parsedSettings.numMCQs}
 - **Case Scenarios to Generate**: ${parsedSettings.numCases}
 - **MCQs per Case Scenario**: ${parsedSettings.questionsPerCase}
-${parsedSettings.additionalInstructions ? `- Additional Instructions: "${parsedSettings.additionalInstructions}"` : ''}
+${
+  parsedSettings.additionalInstructions
+    ? `- Additional Instructions: "${parsedSettings.additionalInstructions}"`
+    : ''
+}
 
 ## User Content & Image Instructions
 ${mainContentPrompt}
@@ -308,14 +387,14 @@ ${imageInstruction}`;
 };
 
 /* ------------------------------------------------------------------
-   Health check
+   Health check (مسار عادي، لا يسبب TypeError)
 ------------------------------------------------------------------- */
 app.get('/', (req, res) => {
   res.send('Quiz Time Backend API is running!');
 });
 
 /* ------------------------------------------------------------------
-   /generate-quiz
+   /generate-quiz (مسار عادي، لا يسبب TypeError)
 ------------------------------------------------------------------- */
 app.post(
   '/generate-quiz',
@@ -324,7 +403,7 @@ app.post(
     { name: 'images', maxCount: 5 },
   ]),
   async (req, res) => {
-    const { prompt, settings } = req.body;
+    const { prompt, settings, imageUsage } = req.body; // إضافة imageUsage هنا
     const file =
       req.files && req.files['file'] ? req.files['file'][0] : null;
     const images = req.files && req.files['images'] ? req.files['images'] : [];
@@ -339,7 +418,7 @@ app.post(
     }
 
     const MAX_TEXT_LENGTH = 40000;
-    const MAX_PDF_SIZE_BYTES = 10 * 1024 * 1024;
+    const MAX_PDF_SIZE_BYTES = 10 * 1024 * 1024; // 10MB
     const MAX_PDF_CHARS = 50000;
     const MAX_IMAGES = 5;
     const MAX_TOTAL_QUESTIONS = 50;
@@ -395,17 +474,17 @@ app.post(
     let usedKey = null;
 
     try {
-      const { ai, key } = getGeminiAIInstance();
+      const { ai, key } = getGeminiAIInstance(); // استخدام مدير المفاتيح
       aiInstance = ai;
       usedKey = key;
 
       const generationPrompt = getGenerationPrompt(
         prompt,
-        null,
+        null, // Subject
         parsedSettings,
         fileContent,
         images.length,
-        parsedSettings.imageUsage
+        imageUsage // تمرير imageUsage هنا
       );
 
       const promptParts = [{ text: generationPrompt }];
@@ -414,7 +493,7 @@ app.post(
       }
 
       const model = aiInstance.getGenerativeModel({
-        model: 'gemini-2.5-flash',
+        model: 'gemini-2.5-flash', // استخدام الموديل المحدد
       });
 
       const response = await model.generateContent({
@@ -463,7 +542,7 @@ app.post(
             if (typeof q.correctAnswer === 'string') {
               processedQuestion.correctAnswer = JSON.parse(q.correctAnswer);
             } else {
-              processedQuestion.isFlawed = true;
+              processedQuestion.isFlawed = true; // لو كان مش string يبقي فيه مشكلة
             }
           } catch {
             processedQuestion.isFlawed = true;
@@ -495,7 +574,7 @@ app.post(
         return processedQuestion;
       });
 
-      updateApiKeyStatus(usedKey, true);
+      updateApiKeyStatus(usedKey, true); // تحديث حالة المفتاح بنجاح
       return res
         .status(200)
         .json({ ...parsedQuiz, quizData: processedQuizData });
@@ -503,7 +582,7 @@ app.post(
       console.error('Gemini API call failed:', error);
       const errorMessage = error instanceof Error ? error.message : String(error);
 
-      if (usedKey) updateApiKeyStatus(usedKey, false, errorMessage);
+      if (usedKey) updateApiKeyStatus(usedKey, false, errorMessage); // تحديث حالة المفتاح بالفشل
 
       if (errorMessage.includes('API key') || errorMessage.includes('403')) {
         return res
@@ -515,15 +594,15 @@ app.post(
           .status(400)
           .json({ error: 'Bad request. Try reducing content or questions.' });
       }
-      if (errorMessage.includes('503')) {
+      if (errorMessage.includes('503') || errorMessage.includes('temporarily unavailable')) {
         return res
           .status(503)
-          .json({ error: 'AI service unavailable. Try later.' });
+          .json({ error: 'AI service unavailable. Please try again later.' });
       }
       if (errorMessage.includes('No Gemini API key')) {
         return res
           .status(500)
-          .json({ error: errorMessage + ' All keys unavailable.' });
+          .json({ error: errorMessage + ' All keys are currently unavailable. Please try again later.' });
       }
       return res
         .status(500)
