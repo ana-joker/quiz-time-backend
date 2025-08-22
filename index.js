@@ -22,13 +22,10 @@ const allowedOrigins = [
 ];
 
 app.use(cors({
-    origin: "https://quiz-time-294ri44we-dr-ahmed-alenanys-projects.vercel.app"
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
-    credentials: true,
-    optionsSuccessStatus: 204
+  origin: "https://quiz-time-294ri44we-dr-ahmed-alenanys-projects.vercel.app", 
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"]
 }));
-
 
 app.use(express.json({ limit: '10mb' })); // لتمكين تحليل JSON في الطلبات
 app.use(express.urlencoded({ extended: true, limit: '10mb' })); // لتمكين تحليل URL-encoded bodies
