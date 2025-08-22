@@ -1,18 +1,43 @@
 require('dotenv').config();
 
 const express = require('express');
-const cors = require('cors'); // ✅ تم تصحيح الاستدعاء
+const cors = require('cors');
 const multer = require('multer');
 const pdf = require('pdf-parse');
-const { GoogleGenerativeAI, Part, HarmBlockThreshold, HarmCategory } = require('@google/generative-ai');
-const { getGeminiAIInstance, updateApiKeyStatus } = require('./apiKeysManager');
+// تم إزالة استيراد GoogleGenerativeAI المباشر، سيتم التعامل معه عبر apiKeysManager
+// const { GoogleGenerativeAI, Part, HarmBlockThreshold, HarmCategory } = require('@google/generative-ai');
+const { HarmBlockThreshold, HarmCategory } = require('@google/generative-ai'); // فقط استيراد الثوابت
+const { getGeminiAIInstance, updateApiKeyStatus } = require('./apiKeysManager'); // ✅ استخدام مدير المفاتيح
 
 const app = express();
 const port = process.env.PORT || 3000;
+
+// ---------------------------------------------------------------------
+// ✅ تعديل تكوين CORS: توسيع قائمة الأصول المسموح بها
+// ---------------------------------------------------------------------
+const allowedOrigins = [
+    'http://localhost:5173', // للواجهة الأمامية المحلية (Vite)
+    'http://localhost:3000', // للـ Backend المحلي
+    'https://quiz-time-8d49mp6hl-dr-ahmed-alenanys-projects.vercel.app', // رابط Vercel الذي أرسلته سابقًا
+    'https://quiz-time-git-main-dr-ahmed-alenanys-projects.vercel.app', // رابط Vercel الذي ظهر في رسالة الخطأ
+    'https://quiz-time-production.up.railway.app', // إذا كان الـ Frontend منشورًا على Railway أيضًا (أو أي رابط آخر لـ Vercel)
+    // يمكنك إضافة أي نطاقات Vercel أخرى هنا إذا كانت تتغير
+];
+
 app.use(cors({
-    origin: ['http://localhost:5173', 'https://quiz-time-git-main-dr-ahmed-alenanys-projects.vercel.app'],
-    methods: ['GET', 'POST'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    origin: function (origin, callback) {
+        // السماح بالطلبات إذا كان الأصل (origin) موجودًا في قائمة allowedOrigins
+        // أو إذا لم يكن هناك أصل (لطلبات مثل Postman أو نفس الأصل على السيرفر)
+        if (!origin || allowedOrigins.indexOf(origin) !== -1) {
+            callback(null, true);
+        } else {
+            callback(new Error(`Not allowed by CORS: ${origin}`));
+        }
+    },
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'], // السماح بأفعال HTTP الضرورية
+    allowedHeaders: ['Content-Type', 'Authorization'], // السماح برؤوس محددة
+    credentials: true, // مهم إذا كنت سترسل cookies أو authorization headers في المستقبل
+    optionsSuccessStatus: 204 // استجابة لطلب preflight
 }));
 
 
@@ -47,7 +72,7 @@ const getDocumentText = async (fileBuffer, mimeType) => {
     return fileBuffer.toString('utf8');
 };
 
-// 🌟 هنا يتم دمج geminiResponseSchema 🌟
+// 🌟 هنا يتم دمج geminiResponseSchema 🌟 (لا تغيير)
 const geminiResponseSchema = {
     type: "OBJECT",
     properties: {
@@ -90,7 +115,7 @@ const geminiResponseSchema = {
     required: ["quizTitle", "quizData"]
 };
 
-// 🌟 هنا يتم دمج getGenerationPrompt 🌟
+// 🌟 هنا يتم دمج getGenerationPrompt 🌟 (لا تغيير)
 const getGenerationPrompt = (prompt, subject, parsedSettings, fileContent, imagesCount, imageUsage) => {
     const mainContentPrompt = prompt
         ? `\n\nUser's specific text content: "${prompt}"`
@@ -224,11 +249,11 @@ Based on the user's provided content and settings, and after performing the inte
 - Quiz Language: ${parsedSettings.quizLanguage}
 - Explanation Language: ${parsedSettings.explanationLanguage}
 - Difficulty: '${parsedSettings.difficulty}'
-- **Requested Question Types**: [${(parsedSettings.questionTypes.length > 0 ? parsedSettings.questionTypes : allQuestionTypes).map(type => `'${type}'`).join(', ')}] // IMPORTANT: Use these types!
+- **Requested Question Types**: [:markdown-math{single="true" encoded="%7B(parsedSettings.questionTypes.length%20%3E%200%20%3F%20parsedSettings.questionTypes%20%3A%20allQuestionTypes).map(type%20%3D%3E%20%60'"}{type}'`).join(', ')}] // IMPORTANT: Use these types!
 - **Standalone MCQs to Generate**: ${parsedSettings.numMCQs}
 - **Case Scenarios to Generate**: ${parsedSettings.numCases}
 - **MCQs per Case Scenario**: ${parsedSettings.questionsPerCase}
-${parsedSettings.additionalInstructions ? `\n- Additional Instructions: "${parsedSettings.additionalInstructions}"` : ''}
+:markdown-math{single="true" encoded="%7BparsedSettings.additionalInstructions%20%3F%20%60%5Cn-%20Additional%20Instructions%3A%20%22"}{parsedSettings.additionalInstructions}"` : ''}
 
 ## User Content & Image Instructions
 ${mainContentPrompt}
@@ -408,3 +433,5 @@ app.post('/generate-quiz', upload.fields([
 app.listen(port, () => {
     console.log(`Quiz Time Backend Server running on port ${port}`);
 });
+
+  [file content end]
