@@ -20,7 +20,7 @@ const allowedOrigins = [
     'http://localhost:3000', // للـ Backend المحلي
     'https://quiz-time-8d49mp6hl-dr-ahmed-alenanys-projects.vercel.app', // رابط Vercel الذي أرسلته سابقًا
     'https://quiz-time-git-main-dr-ahmed-alenanys-projects.vercel.app', // رابط Vercel الذي ظهر في رسالة الخطأ
-    'https://quiz-time-production.up.railway.app', // إذا كان الـ Frontend منشورًا على Railway أيضًا (أو أي رابط آخر لـ Vercel)
+    'https://quiz-puplic-production.up.railway.app', // رابط الـ Backend المنشور على Railway (إذا كان الـ Frontend يحاول الاتصال بنفس نطاق الـ Backend)
     // يمكنك إضافة أي نطاقات Vercel أخرى هنا إذا كانت تتغير
 ];
 
@@ -115,7 +115,7 @@ const geminiResponseSchema = {
     required: ["quizTitle", "quizData"]
 };
 
-// 🌟 هنا يتم دمج getGenerationPrompt 🌟 (لا تغيير)
+// 🌟 هنا يتم دمج getGenerationPrompt 🌟 (مع التعديل على السطر المسبب للمشكلة)
 const getGenerationPrompt = (prompt, subject, parsedSettings, fileContent, imagesCount, imageUsage) => {
     const mainContentPrompt = prompt
         ? `\n\nUser's specific text content: "${prompt}"`
@@ -249,11 +249,11 @@ Based on the user's provided content and settings, and after performing the inte
 - Quiz Language: ${parsedSettings.quizLanguage}
 - Explanation Language: ${parsedSettings.explanationLanguage}
 - Difficulty: '${parsedSettings.difficulty}'
-- **Requested Question Types**: [:markdown-math{single="true" encoded="%7B(parsedSettings.questionTypes.length%20%3E%200%20%3F%20parsedSettings.questionTypes%20%3A%20allQuestionTypes).map(type%20%3D%3E%20%60'"}{type}'`).join(', ')}] // IMPORTANT: Use these types!
+- **Requested Question Types**: ${JSON.stringify(parsedSettings.questionTypes.length > 0 ? parsedSettings.questionTypes : allQuestionTypes)} // IMPORTANT: Use these types!
 - **Standalone MCQs to Generate**: ${parsedSettings.numMCQs}
 - **Case Scenarios to Generate**: ${parsedSettings.numCases}
 - **MCQs per Case Scenario**: ${parsedSettings.questionsPerCase}
-:markdown-math{single="true" encoded="%7BparsedSettings.additionalInstructions%20%3F%20%60%5Cn-%20Additional%20Instructions%3A%20%22"}{parsedSettings.additionalInstructions}"` : ''}
+${parsedSettings.additionalInstructions ? `\n- Additional Instructions: "${parsedSettings.additionalInstructions}"` : ''}
 
 ## User Content & Image Instructions
 ${mainContentPrompt}
@@ -433,5 +433,3 @@ app.post('/generate-quiz', upload.fields([
 app.listen(port, () => {
     console.log(`Quiz Time Backend Server running on port ${port}`);
 });
-
-  [file content end]
