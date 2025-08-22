@@ -23,20 +23,18 @@ const allowedOrigins = [
 
 app.use(cors({
     origin: function (origin, callback) {
-        // السماح بالطلبات إذا كان الأصل (origin) موجودًا في قائمة allowedOrigins
-        // أو إذا كان ينتهي بـ '.vercel.app' (لتغطية جميع نطاقات Vercel)
-        // أو إذا لم يكن هناك أصل (لطلبات مثل Postman أو نفس الأصل على السيرفر)
-        if (!origin || allowedOrigins.includes(origin) || origin.endsWith('.vercel.app')) {
+        if (!origin || 
+            origin.endsWith('.vercel.app') || 
+            allowedOrigins.includes(origin)) {
             callback(null, true);
         } else {
-            // رفض الطلب إذا لم يطابق أي من القواعد
             callback(new Error(`Not allowed by CORS: ${origin}`));
         }
     },
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'], // السماح بأفعال HTTP الضرورية
-    allowedHeaders: ['Content-Type', 'Authorization'], // السماح برؤوس محددة، مهم للمصادقة المستقبلية
-    credentials: true, // مهم إذا كنا سنرسل cookies أو authorization headers في المستقبل
-    optionsSuccessStatus: 204 // استجابة لطلب preflight (لتحسين أداء المتصفح)
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: true,
+    optionsSuccessStatus: 204
 }));
 
 
