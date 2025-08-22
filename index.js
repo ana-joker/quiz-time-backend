@@ -4,50 +4,54 @@ const express = require('express');
 const cors = require('cors');
 const multer = require('multer');
 const pdf = require('pdf-parse');
-// تم إزالة استيراد GoogleGenerativeAI المباشر، سيتم التعامل معه عبر apiKeysManager
-// const { GoogleGenerativeAI, Part, HarmBlockThreshold, HarmCategory } = require('@google/generative-ai');
-const { HarmBlockThreshold, HarmCategory } = require('@google/generative-ai'); // فقط استيراد الثوابت
-const { getGeminiAIInstance, updateApiKeyStatus } = require('./apiKeysManager'); // ✅ استخدام مدير المفاتيح
+// فقط استيراد الثوابت الضرورية من مكتبة Gemini AI
+const { HarmBlockThreshold, HarmCategory } = require('@google/generative-ai'); 
+const { getGeminiAIInstance, updateApiKeyStatus } = require('./apiKeysManager'); // مدير المفاتيح الخاص بنا
 
 const app = express();
-const port = process.env.PORT || 3000;
+// Railway يخصص منفذًا، لذلك يجب أن نستخدم `process.env.PORT`
+const port = process.env.PORT || 3000; 
 
 // ---------------------------------------------------------------------
-// ✅ تعديل تكوين CORS: توسيع قائمة الأصول المسموح بها
+// ✅ تكوين CORS محسّن باستخدام اقتراحك الذكي
 // ---------------------------------------------------------------------
 const allowedOrigins = [
     'http://localhost:5173', // للواجهة الأمامية المحلية (Vite)
-    'http://localhost:3000', // للـ Backend المحلي
-    'https://quiz-time-8d49mp6hl-dr-ahmed-alenanys-projects.vercel.app', // رابط Vercel الذي أرسلته سابقًا
-    'https://quiz-time-git-main-dr-ahmed-alenanys-projects.vercel.app', // رابط Vercel الذي ظهر في رسالة الخطأ
-    'https://quiz-puplic-production.up.railway.app', // رابط الـ Backend المنشور على Railway (إذا كان الـ Frontend يحاول الاتصال بنفس نطاق الـ Backend)
-    // يمكنك إضافة أي نطاقات Vercel أخرى هنا إذا كانت تتغير
+    'http://localhost:3000', // للـ Backend المحلي (إذا كان هناك طلبات من هنا)
+    // لا حاجة لإضافة روابط Vercel الأخرى يدويًا بفضل `endsWith('.vercel.app')`
 ];
 
 app.use(cors({
     origin: function (origin, callback) {
         // السماح بالطلبات إذا كان الأصل (origin) موجودًا في قائمة allowedOrigins
+        // أو إذا كان ينتهي بـ '.vercel.app' (لتغطية جميع نطاقات Vercel)
         // أو إذا لم يكن هناك أصل (لطلبات مثل Postman أو نفس الأصل على السيرفر)
-        if (!origin || allowedOrigins.indexOf(origin) !== -1) {
+        if (!origin || allowedOrigins.includes(origin) || origin.endsWith('.vercel.app')) {
             callback(null, true);
         } else {
+            // رفض الطلب إذا لم يطابق أي من القواعد
             callback(new Error(`Not allowed by CORS: ${origin}`));
         }
     },
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'], // السماح بأفعال HTTP الضرورية
-    allowedHeaders: ['Content-Type', 'Authorization'], // السماح برؤوس محددة
-    credentials: true, // مهم إذا كنت سترسل cookies أو authorization headers في المستقبل
-    optionsSuccessStatus: 204 // استجابة لطلب preflight
+    allowedHeaders: ['Content-Type', 'Authorization'], // السماح برؤوس محددة، مهم للمصادقة المستقبلية
+    credentials: true, // مهم إذا كنا سنرسل cookies أو authorization headers في المستقبل
+    optionsSuccessStatus: 204 // استجابة لطلب preflight (لتحسين أداء المتصفح)
 }));
 
 
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(express.json({ limit: '10mb' })); // لتمكين تحليل JSON في الطلبات
+app.use(express.urlencoded({ extended: true, limit: '10mb' })); // لتمكين تحليل URL-encoded bodies
 
+// إعداد Multer لتخزين الملفات في الذاكرة (مهم للتعامل مع الملفات مؤقتًا)
 const upload = multer({ storage: multer.memoryStorage() });
 
+// أنواع الأسئلة المدعومة (ثابتة)
 const allQuestionTypes = ["MCQ", "TrueFalse", "ShortAnswer", "Ordering", "Matching"];
 
+// ---------------------------------------------------------------------
+// دوال مساعدة لمعالجة الملفات وتحويلها إلى أجزاء يمكن لـ Gemini فهمها
+// ---------------------------------------------------------------------
 const fileToGenerativePart = async (fileBuffer, mimeType) => {
     return {
         inlineData: {
@@ -67,12 +71,14 @@ const getDocumentText = async (fileBuffer, mimeType) => {
             throw new Error('Could not extract text from PDF. The file might be corrupted or image-based.');
         }
     } else if (mimeType.startsWith('text/')) {
+        // إذا كان ملفًا نصيًا، قم بتحويله مباشرة إلى سلسلة نصية
         return fileBuffer.toString('utf8');
     }
+    // افتراضيًا، حاول تحويل أي شيء آخر إلى نص (قد لا يكون فعالًا دائمًا)
     return fileBuffer.toString('utf8');
 };
 
-// 🌟 هنا يتم دمج geminiResponseSchema 🌟 (لا تغيير)
+// 🌟 تعريف مخطط استجابة Gemini (geminiResponseSchema) - لا تغيير
 const geminiResponseSchema = {
     type: "OBJECT",
     properties: {
@@ -115,7 +121,7 @@ const geminiResponseSchema = {
     required: ["quizTitle", "quizData"]
 };
 
-// 🌟 هنا يتم دمج getGenerationPrompt 🌟 (مع التعديل على السطر المسبب للمشكلة)
+// 🌟 تعريف دالة getGenerationPrompt (مع التعديل على السطر المسبب للخطأ)
 const getGenerationPrompt = (prompt, subject, parsedSettings, fileContent, imagesCount, imageUsage) => {
     const mainContentPrompt = prompt
         ? `\n\nUser's specific text content: "${prompt}"`
@@ -144,10 +150,13 @@ const getGenerationPrompt = (prompt, subject, parsedSettings, fileContent, image
 # Image-Based Question Instructions
 - You have been provided with ${imagesCount} image(s). They are 0-indexed.
 - ${instructionText}
-- For these questions, the 'question' text must clearly refer to the image (e.g., "Based on the first X-ray...", "In the image of the cell (image 1)...").
+- For these questions, the 'question' text must clearly refer to to the image (e.g., "Based on the first X-ray...", "In the image of the cell (image 1)...").
 - You MUST set 'refersToUploadedImageIndex' to the 0-based index of the image being used for all questions that use an image.`;
         }
     }
+
+    // ✅ التعديل الرئيسي هنا: تبسيط السطر الذي كان يسبب SyntaxError
+    const requestedQuestionTypesFormatted = JSON.stringify(parsedSettings.questionTypes.length > 0 ? parsedSettings.questionTypes : allQuestionTypes);
 
     return `
 // AI Execution Protocol: Version 3.2 (Adaptive Quiz Generation with Multi-Type Questions & Deterministic Answer Distribution)
@@ -249,7 +258,7 @@ Based on the user's provided content and settings, and after performing the inte
 - Quiz Language: ${parsedSettings.quizLanguage}
 - Explanation Language: ${parsedSettings.explanationLanguage}
 - Difficulty: '${parsedSettings.difficulty}'
-- **Requested Question Types**: ${JSON.stringify(parsedSettings.questionTypes.length > 0 ? parsedSettings.questionTypes : allQuestionTypes)} // IMPORTANT: Use these types!
+- **Requested Question Types**: ${requestedQuestionTypesFormatted} // IMPORTANT: Use these types!
 - **Standalone MCQs to Generate**: ${parsedSettings.numMCQs}
 - **Case Scenarios to Generate**: ${parsedSettings.numCases}
 - **MCQs per Case Scenario**: ${parsedSettings.questionsPerCase}
