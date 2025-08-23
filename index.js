@@ -24,7 +24,7 @@ const allowedOrigins = [
   'http://localhost:5173', // بيئة تطوير Vite
   'http://localhost:8080', // <--- تم إضافة هذا السطر هنا لدعم الواجهة الأمامية المحلية على 8080
     'http://localhost:3000', // قد يكون للواجهة الأمامية المحلية أو لأدوات الاختبار
-  'https://quiz-time-12echrk3g-dr-ahmed-alenanys-projects.vercel.app', // الرابط الفعلي للواجهة الأمامية على Vercel
+  'https://quiz-time-mhj58ur1z-dr-ahmed-alenanys-projects.vercel.app/', // الرابط الفعلي للواجهة الأمامية على Vercel
   // أضف هنا أي روابط Vercel أخرى أو روابط مخصصة للواجهة الأمامية
 ];
 // تهيئة CORS middleware بخيارات محددة
