@@ -19,7 +19,7 @@ const port = process.env.PORT || 8080;
 /* ------------------------------------------------------------------
    ✅ CORS configuration (النسخة المبسطة والفعالة)
 ------------------------------------------------------------------- */
-app.use(cors({
+const corsMiddleware = cors({ // تم تعريف الـ middleware في متغير
   origin: (origin, callback) => {
     if (!origin) return callback(null, true); // للسماح بـ Postman / curl أو الطلبات التي لا تحتوي على Origin
 
@@ -33,7 +33,6 @@ app.use(cors({
       }
 
       // السماح بالـ localhost أثناء التطوير (http و https)
-      // قد تحتاج لتحديد المنافذ التي تعمل عليها الواجهة الأمامية المحلية هنا
       if (origin.startsWith("http://localhost:") || origin.startsWith("https://localhost:")) {
         return callback(null, true);
       }
@@ -47,12 +46,15 @@ app.use(cors({
     }
   },
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"], // أضفت X-Requested-With
+  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
   credentials: false, // لو عايز تبعت Cookies عبر الدومينات (مثل JWT في Cookies) خليه true
-}));
+});
+
+app.use(corsMiddleware); // تفعيل الـ middleware لجميع الطلبات العادية
 
 // مهم جداً للـ preflight requests (طلبات OPTIONS) لجميع المسارات
-app.options("*", cors());
+// نستخدم نفس الـ middleware المعرف في الأعلى
+app.options("*", corsMiddleware); // <--- تم التعديل هنا!
 
 /* ------------------------------------------------------------------
    Parsers & Uploads
@@ -308,7 +310,7 @@ After generating all MCQs (including True/False treated as MCQs), you MUST inter
         ii.  Determine a \`NewPos\` (the deterministically optimized new position):
             1.  Calculate the frequency of each position (A, B, C, D) in the 4-question window *excluding* question \`j\` itself.
             2.  Find the position with the *lowest* frequency among the remaining positions.
-            3.  If multiple positions have the same lowest frequency, choose the alphabetically earliest position (A before B, B before C, etc.).
+            3.  If multiple positions have the same lowest frequency, choose the the alphabetically earliest position (A before B, B before C, etc.).
             4.  This position is \`NewPos\`.
         iii. **Crucially:** Internally swap the *content* of the current correct option (at position \`P\`) with the *content* of the option at \`NewPos\` within question \`j\`'s options array.
         iv.  Update question \`j\`'s \`correctAnswer\` (string) to reflect the new option content at \`NewPos\`.
