@@ -14,20 +14,19 @@ const { getGeminiAIInstance, updateApiKeyStatus } = require('./apiKeysManager');
 const app = express();
 
 // Railway يحدد المنفذ عبر ENV، أو نستخدم 3000 كافتراضي محلي
-const port = process.env.PORT || 3000;
+const port = process.env.PORT || 8080;
 
 /* ------------------------------------------------------------------
    ✅ CORS configuration (يدعم Vercel + Railway + localhost) - تم التعديل
 ------------------------------------------------------------------- */
 
-// قائمة الأصول (frontends) المسموح لها بالوصول إلى الـ Backend
 const allowedOrigins = [
   'http://localhost:5173', // بيئة تطوير Vite
-  'http://localhost:3000', // قد يكون للواجهة الأمامية المحلية أو لأدوات الاختبار
+  'http://localhost:8080', // <--- تم إضافة هذا السطر هنا لدعم الواجهة الأمامية المحلية على 8080
+    'http://localhost:3000', // قد يكون للواجهة الأمامية المحلية أو لأدوات الاختبار
   'https://quiz-time-12echrk3g-dr-ahmed-alenanys-projects.vercel.app', // الرابط الفعلي للواجهة الأمامية على Vercel
   // أضف هنا أي روابط Vercel أخرى أو روابط مخصصة للواجهة الأمامية
 ];
-
 // تهيئة CORS middleware بخيارات محددة
 const corsOptions = {
   origin: (origin, callback) => {
