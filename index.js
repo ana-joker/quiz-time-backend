@@ -2,7 +2,7 @@
 require('dotenv').config(); // تحميل متغيرات البيئة من ملف .env
 
 const express = require('express');
-const cors = require('cors');
+const cors = require('cors'); // مكتبة CORS
 const multer = require('multer');
 const pdf = require('pdf-parse'); // مكتبة لمعالجة PDF
 
@@ -17,88 +17,43 @@ const app = express();
 const port = process.env.PORT || 3000;
 
 /* ------------------------------------------------------------------
-   ✅ CORS configuration (يدعم Vercel + Railway + localhost)
+   ✅ CORS configuration (يدعم Vercel + Railway + localhost) - تم التعديل
 ------------------------------------------------------------------- */
 
 // قائمة الأصول (frontends) المسموح لها بالوصول إلى الـ Backend
 const allowedOrigins = [
   'http://localhost:5173', // بيئة تطوير Vite
   'http://localhost:3000', // قد يكون للواجهة الأمامية المحلية أو لأدوات الاختبار
-  'https://quiz-time-294ri44we-dr-ahmed-alenanys-projects.vercel.app', // رابط Vercel الخاص بك
-  // 'https://quiz-puplic-production.up.railway.app', // هذا الرابط للـ Backend نفسه، لا يستخدم كـ origin
-  // أضف أي روابط Vercel أو Railway أخرى هنا إذا لزم الأمر
+  'https://quiz-time-12echrk3g-dr-ahmed-alenanys-projects.vercel.app', // الرابط الفعلي للواجهة الأمامية على Vercel
+  // أضف هنا أي روابط Vercel أخرى أو روابط مخصصة للواجهة الأمامية
 ];
 
-// دالة مساعدة للتحقق من الدومين بشكل ديناميكي (تشمل Vercel و Railway)
-const isAllowedDynamic = (origin) => {
-  if (!origin) return true; // السماح بالطلبات التي لا تحتوي على Origin (مثل Postman/curl)
-  try {
-    const url = new URL(origin);
-    const host = url.hostname;
-
-    // السماح لأي deploy من Vercel
-    if (host.endsWith('.vercel.app')) return true;
-
-    // السماح بأي subdomain من Railway (لأي مشاريع أخرى قد تتصل)
-    if (host.endsWith('.up.railway.app')) return true;
-
-    // السماح بالقائمة البيضاء الصريحة
-    if (allowedOrigins.includes(origin)) return true;
-
-    return false;
-  } catch {
-    return false; // إذا كان الـ origin غير صالح كـ URL
-  }
+// تهيئة CORS middleware بخيارات محددة
+const corsOptions = {
+  origin: (origin, callback) => {
+    // السماح بالطلبات التي لا تحتوي على Origin (مثل Postman/curl للاختبار)
+    // أو إذا كان الـ origin موجودًا في القائمة المسموح بها صراحةً
+    // أو إذا كان ينتهي بـ .vercel.app (لأي deploy من Vercel)
+    // أو إذا كان ينتهي بـ .up.railway.app (للتواصل الداخلي أو مشاريع Railway الأخرى)
+    if (!origin || allowedOrigins.includes(origin) || origin.endsWith('.vercel.app') || origin.endsWith('.up.railway.app')) {
+      callback(null, true);
+    } else {
+      // رفض الطلب إذا لم يكن Origin مسموحًا به
+      console.warn(`CORS: Not allowed by origin policy - ${origin}`);
+      callback(new Error(`Not allowed by CORS: ${origin}`));
+    }
+  },
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  credentials: true, // مهم جداً إذا كنت ستستخدم ملفات تعريف الارتباط (cookies) أو رؤوس Authorization
+  optionsSuccessStatus: 204, // رمز الحالة لنجاح طلب OPTIONS (Preflight)
 };
 
-// Middleware لتحديد رؤوس CORS بشكل ديناميكي
-app.use((req, res, next) => {
-  const origin = req.headers.origin;
-  if (isAllowedDynamic(origin)) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
-  } else if (!origin) {
-    // إذا لم يكن هناك origin (مثل Postman)، اسمح بالوصول
-    res.setHeader('Access-Control-Allow-Origin', '*');
-  }
-  res.setHeader(
-    'Access-Control-Allow-Methods',
-    'GET,POST,PUT,PATCH,DELETE,OPTIONS'
-  );
-  res.setHeader(
-    'Access-Control-Allow-Headers',
-    'Content-Type, Authorization, X-Requested-With'
-  );
-  // res.setHeader('Access-Control-Allow-Credentials', 'true'); // فعلها لو هتستخدم كوكيز عبر الدومينات
+// تفعيل CORS middleware في بداية التطبيق وقبل تعريف أي مسارات
+app.use(cors(corsOptions));
 
-  // التعامل مع الـ preflight (طلبات OPTIONS) بسرعة
-  if (req.method === 'OPTIONS') {
-    return res.sendStatus(204);
-  }
-  next();
-});
-
-// استخدام مكتبة cors() كطبقة إضافية، مع نفس منطق الـ origin
-// هذا يضمن أن Express يتعامل مع الـ OPTIONS requests بشكل صحيح للمسارات المحددة
-app.use(
-  cors({
-    origin: (origin, callback) => {
-      if (isAllowedDynamic(origin)) {
-        callback(null, true);
-      } else {
-        // رفض الطلب إذا لم يكن Origin مسموحًا به
-        callback(new Error(`Not allowed by CORS: ${origin}`));
-      }
-    },
-    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
-    // credentials: true, // فعلها لو هتستخدم كوكيز عبر الدومينات
-    preflightContinue: false, // لا تمرر طلبات OPTIONS إلى الـ handlers الأخرى
-    optionsSuccessStatus: 204, // رمز الحالة لنجاح طلب OPTIONS
-  })
-);
-
-// لا تقم بإضافة app.use("https://...") أو app.get("https://...") هنا
-// هذا هو السبب المحتمل لـ TypeError.
+// لا تقم بإضافة الـ middleware اليدوي لـ CORS بعد استخدام حزمة cors
+// الكود اليدوي الذي كان هنا تم حذفه لأنه يتعارض أو أقل كفاءة من حزمة cors
 
 /* ------------------------------------------------------------------
    Parsers & Uploads
