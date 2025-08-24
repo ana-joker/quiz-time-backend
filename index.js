@@ -8,9 +8,12 @@ const pdf = require('pdf-parse'); // مكتبة لمعالجة PDF
 const helmet = require('helmet'); // 🔒 إضافة Helmet للأمان
 const Joi = require('joi'); // 🛡️ إضافة Joi للتحقق من صحة المدخلات
 
-// ثوابت سلامة من حزمة Gemini (الحزمة الجديدة قد لا تحتاجها هنا مباشرة)
-// سنستخدمها في الـ model.generateContent مباشرة
-const { HarmBlockThreshold, HarmCategory, GoogleGenerativeAI } = require('@google/genai'); // 🚀 تحديث: استيراد من الحزمة الجديدة
+// 🚨🚨🚨 التصحيح النهائي لـ SyntaxError: Unexpected identifier 🚨🚨🚨
+// استيراد HarmBlockThreshold و HarmCategory بشكل منفصل
+const { HarmBlockThreshold, HarmCategory } = require('@google/genai'); 
+// استيراد GoogleGenerativeAI بشكل منفصل لضمان التوافق مع CommonJS في Node.js v18
+const { GoogleGenerativeAI } = require('@google/genai'); 
+
 // استيراد مدير مفاتيح API الذي أنشأناه
 const { getGeminiAIInstance, updateApiKeyStatus } = require('./apiKeysManager');
 
@@ -476,7 +479,7 @@ app.post(
     let usedKey = null;
 
     try {
-      // 🚨 تمرير GoogleGenerativeAI كبارامتر
+      // 🚨 تم تمرير GoogleGenerativeAI كبارامتر
       const { ai, key } = getGeminiAIInstance(GoogleGenerativeAI); 
       aiInstance = ai;
       usedKey = key;
@@ -501,7 +504,7 @@ app.post(
       });
 
       const response = await model.generateContent({
-        contents: [{ role: 'user', parts: promptParts }], // 🚀 تحديث: تنسيق المحتوى لـ @google/genai
+        contents: [{ role: 'user', parts: promptParts }], 
         generationConfig: {
           responseMimeType: 'application/json',
           responseSchema: geminiResponseSchema,
