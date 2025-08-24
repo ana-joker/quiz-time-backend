@@ -5,9 +5,12 @@ const express = require('express');
 const cors = require('cors'); // مكتبة CORS
 const multer = require('multer');
 const pdf = require('pdf-parse'); // مكتبة لمعالجة PDF
+const helmet = require('helmet'); // 🔒 إضافة Helmet للأمان
+const Joi = require('joi'); // 🛡️ إضافة Joi للتحقق من صحة المدخلات
 
-// ثوابت سلامة من حزمة Gemini
-const { HarmBlockThreshold, HarmCategory } = require('@google/generative-ai');
+// ثوابت سلامة من حزمة Gemini (الحزمة الجديدة قد لا تحتاجها هنا مباشرة)
+// سنستخدمها في الـ model.generateContent مباشرة
+const { HarmBlockThreshold, HarmCategory, GoogleGenerativeAI } = require('@google/genai'); // 🚀 تحديث: استيراد من الحزمة الجديدة
 // استيراد مدير مفاتيح API الذي أنشأناه
 const { getGeminiAIInstance, updateApiKeyStatus } = require('./apiKeysManager');
 
@@ -17,6 +20,11 @@ const app = express();
 const port = process.env.PORT || 3000;
 
 /* ------------------------------------------------------------------
+   🔒 إضافة Helmet (طبقة أمان أساسية)
+------------------------------------------------------------------- */
+app.use(helmet());
+
+/* ------------------------------------------------------------------
    ✅ CORS configuration (يدعم Vercel + Railway + localhost) - تم التعديل
 ------------------------------------------------------------------- */
 
@@ -24,9 +32,8 @@ const port = process.env.PORT || 3000;
 const allowedOrigins = [
   'http://localhost:5173', // بيئة تطوير Vite
   'http://localhost:3000', // قد يكون للواجهة الأمامية المحلية أو لأدوات الاختبار
-  'https://quiz-time-tan.vercel.app/', // الرابط الفعلي للواجهة الأمامية على Vercel
+  'https://quiz-time-tan.vercel.app', // الرابط الفعلي للواجهة الأمامية على Vercel
   // أضف هنا أي روابط Vercel أخرى أو روابط مخصصة للواجهة الأمامية
-  // تم إزالة الرابط القديم quiz-puplic-production.up.railway.app
 ];
 
 // تهيئة CORS middleware بخيارات محددة
@@ -53,9 +60,6 @@ const corsOptions = {
 // تفعيل CORS middleware في بداية التطبيق وقبل تعريف أي مسارات
 app.use(cors(corsOptions));
 
-// لا تقم بإضافة الـ middleware اليدوي لـ CORS بعد استخدام حزمة cors
-// الكود اليدوي الذي كان هنا تم حذفه لأنه يتعارض أو أقل كفاءة من حزمة cors
-
 /* ------------------------------------------------------------------
    Parsers & Uploads
 ------------------------------------------------------------------- */
@@ -64,6 +68,56 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' })); // لدعم URL-
 
 // إعداد Multer لتخزين الملفات في الذاكرة (مؤقت)
 const upload = multer({ storage: multer.memoryStorage() });
+
+/* ------------------------------------------------------------------
+   🛡️ Schema للتحقق من صحة المدخلات باستخدام Joi
+------------------------------------------------------------------- */
+const settingsSchema = Joi.object({
+  quizLanguage: Joi.string().valid('en', 'ar').default('en'),
+  explanationLanguage: Joi.string().valid('en', 'ar').default('en'),
+  difficulty: Joi.string().valid('easy', 'medium', 'hard').default('medium'),
+  numMCQs: Joi.number().integer().min(0).max(50).default(0),
+  numCases: Joi.number().integer().min(0).max(10).default(0),
+  questionsPerCase: Joi.number().integer().min(0).max(10).default(0),
+  numImageQuestions: Joi.number().integer().min(0).max(5).default(0),
+  questionTypes: Joi.array().items(Joi.string().valid('MCQ', 'TrueFalse', 'ShortAnswer', 'Ordering', 'Matching')).default(['MCQ']),
+  temperature: Joi.number().min(0).max(1).default(0.7),
+  topP: Joi.number().min(0).max(1).default(0.9),
+  topK: Joi.number().integer().min(1).max(100).default(40),
+  additionalInstructions: Joi.string().allow('').optional(),
+});
+
+const quizRequestSchema = Joi.object({
+  prompt: Joi.string().allow('').max(40000).optional(),
+  settings: Joi.string().required(), // نتحقق هنا أنه string، وسنقوم بتحليله لاحقًا في الـ Controller
+  imageUsage: Joi.string().valid('link', 'about', 'auto').optional().default('auto'),
+});
+
+// 🛡️ Middleware للتحقق من صحة المدخلات
+const validateQuizRequest = (req, res, next) => {
+  const { error } = quizRequestSchema.validate(req.body);
+  if (error) {
+    console.error('Validation Error:', error.details[0].message);
+    return res.status(400).json({ error: `Validation failed: ${error.details[0].message}` });
+  }
+
+  // بعد التحقق الأساسي، نقوم بتحليل الـ settings JSON
+  try {
+    req.body.parsedSettings = JSON.parse(req.body.settings);
+    // ثم نتحقق من صحة الـ parsedSettings
+    const { error: settingsError } = settingsSchema.validate(req.body.parsedSettings);
+    if (settingsError) {
+      console.error('Settings Validation Error:', settingsError.details[0].message);
+      return res.status(400).json({ error: `Settings validation failed: ${settingsError.details[0].message}` });
+    }
+  } catch (e) {
+    console.error('JSON Parse Error for settings:', e.message);
+    return res.status(400).json({ error: 'Invalid settings format. Settings must be valid JSON string.' });
+  }
+
+  next();
+};
+
 
 /* ------------------------------------------------------------------
    ثوابت لأنواع الأسئلة
@@ -182,7 +236,7 @@ const geminiResponseSchema = {
 const getGenerationPrompt = (
   prompt,
   subject,
-  parsedSettings,
+  parsedSettings, // سنستخدم هذا مباشرة
   fileContent,
   imagesCount,
   imageUsage
@@ -358,32 +412,23 @@ app.post(
     { name: 'file', maxCount: 1 },
     { name: 'images', maxCount: 5 },
   ]),
+  validateQuizRequest, // 🛡️ إضافة middleware التحقق من صحة المدخلات
   async (req, res) => {
-    const { prompt, settings, imageUsage } = req.body; // إضافة imageUsage هنا
+    // 🛡️ تم التحقق من صحة prompt, settings, imageUsage بواسطة validateQuizRequest
+    // و parsedSettings متاح الآن في req.body.parsedSettings
+    const { prompt, imageUsage, parsedSettings } = req.body;
     const file =
       req.files && req.files['file'] ? req.files['file'][0] : null;
     const images = req.files && req.files['images'] ? req.files['images'] : [];
 
-    let parsedSettings;
-    try {
-      parsedSettings = JSON.parse(settings);
-    } catch (e) {
-      return res
-        .status(400)
-        .json({ error: 'Invalid settings format. Settings must be valid JSON.' });
-    }
+    // لم نعد نحتاج إلى JSON.parse(settings) هنا لأن validateQuizRequest قام بذلك
+    // ولم نعد نحتاج إلى التحقق من صحة settings هنا لأن validateQuizRequest قام بذلك
+    // ولم نعد نحتاج إلى التحقق من طول prompt هنا لأن validateQuizRequest قام بذلك (max(40000))
 
-    const MAX_TEXT_LENGTH = 40000;
     const MAX_PDF_SIZE_BYTES = 10 * 1024 * 1024; // 10MB
     const MAX_PDF_CHARS = 50000;
-    const MAX_IMAGES = 5;
+    const MAX_IMAGES = 5; // تم التحقق من عدد الصور بواسطة multer (maxCount: 5)
     const MAX_TOTAL_QUESTIONS = 50;
-
-    if (prompt && prompt.length > MAX_TEXT_LENGTH) {
-      return res
-        .status(400)
-        .json({ error: `Prompt text exceeds ${MAX_TEXT_LENGTH} characters.` });
-    }
 
     let fileContent = null;
     if (file) {
@@ -404,16 +449,17 @@ app.post(
       }
     }
 
-    if (images.length > MAX_IMAGES) {
-      return res
-        .status(400)
-        .json({ error: `Maximum ${MAX_IMAGES} images allowed.` });
-    }
+    // 🛡️ تم التحقق من عدد الصور بواسطة multer (maxCount: 5)
+    // if (images.length > MAX_IMAGES) {
+    //   return res
+    //     .status(400)
+    //     .json({ error: `Maximum ${MAX_IMAGES} images allowed.` });
+    // }
 
-    const totalMCQs = parseInt(parsedSettings.numMCQs, 10) || 0;
-    const totalCases = parseInt(parsedSettings.numCases, 10) || 0;
-    const qPerCase = parseInt(parsedSettings.questionsPerCase, 10) || 0;
-    const totalImageQuestions = parseInt(parsedSettings.numImageQuestions, 10) || 0;
+    const totalMCQs = parsedSettings.numMCQs || 0;
+    const totalCases = parsedSettings.numCases || 0;
+    const qPerCase = parsedSettings.questionsPerCase || 0;
+    const totalImageQuestions = parsedSettings.numImageQuestions || 0;
     const calculatedTotalQuestions =
       totalMCQs + totalCases * qPerCase + totalImageQuestions;
 
@@ -437,7 +483,7 @@ app.post(
       const generationPrompt = getGenerationPrompt(
         prompt,
         null, // Subject
-        parsedSettings,
+        parsedSettings, // استخدام parsedSettings مباشرة
         fileContent,
         images.length,
         imageUsage // تمرير imageUsage هنا
@@ -448,12 +494,13 @@ app.post(
         promptParts.push(await fileToGenerativePart(img.buffer, img.mimetype));
       }
 
+      // 🚀 تحديث: استخدام GoogleGenerativeAI مباشرة
       const model = aiInstance.getGenerativeModel({
         model: 'gemini-2.5-flash', // استخدام الموديل المحدد
       });
 
       const response = await model.generateContent({
-        contents: { parts: promptParts },
+        contents: [{ role: 'user', parts: promptParts }], // 🚀 تحديث: تنسيق المحتوى لـ @google/genai
         generationConfig: {
           responseMimeType: 'application/json',
           responseSchema: geminiResponseSchema,
@@ -573,3 +620,5 @@ app.post(
 app.listen(port, () => {
   console.log(`Quiz Time Backend Server running on port ${port}`);
 });
+
+  [file content end]
