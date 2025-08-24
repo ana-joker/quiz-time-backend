@@ -1,6 +1,5 @@
 // apiKeysManager.js
-// 🚨 إزالة استيراد GoogleGenerativeAI من هنا
-// const { GoogleGenerativeAI } = require('@google/generative-ai'); // 🚨 هذا السطر يجب إزالته
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 // الحصول على المفاتيح من متغيرات البيئة وتقسيمها إلى مصفوفة
 const ALL_API_KEYS = (process.env.GEMINI_API_KEYS || '').split(',').map(key => key.trim()).filter(key => key.length > 0);
@@ -86,13 +85,12 @@ function updateApiKeyStatus(keyInUse, success, errorMessage = '') {
 
 /**
  * يقوم بإنشاء مثيل GoogleGenerativeAI مع مفتاح API متاح.
- * @param {function} GoogleGenerativeAIClass الفئة GoogleGenerativeAI التي تم استيرادها في index.js
- * @returns {object} يحتوي على مثيل AI ومفتاح API المستخدم
+ * @returns {GoogleGenerativeAI}
  */
-function getGeminiAIInstance(GoogleGenerativeAIClass) { // 🚨 إضافة بارامتر GoogleGenerativeAIClass
+function getGeminiAIInstance() {
     const apiKey = getAvailableApiKey();
     return {
-        ai: new GoogleGenerativeAIClass(apiKey), // 🚨 استخدام البارامتر
+        ai: new GoogleGenerativeAI(apiKey),
         key: apiKey // نرجع المفتاح المستخدم لتتبع حالته
     };
 }

@@ -1,97 +1,73 @@
-// index.js (بعد التحويل إلى ES Module)
+// index.js
+require('dotenv').config(); // تحميل متغيرات البيئة من ملف .env
 
-import 'dotenv/config'; // 🚨 تحديث: استخدام dotenv/config لـ ES Modules
+const express = require('express');
+const cors = require('cors'); // مكتبة CORS
+const multer = require('multer');
+const pdf = require('pdf-parse'); // مكتبة لمعالجة PDF
 
-import express from 'express';
-import cors from 'cors';
-import multer from 'multer';
-import pdf from 'pdf-parse';
-import helmet from 'helmet';
-import Joi from 'joi';
-
-// 🚨 تحديث: استيراد من الحزمة الجديدة باستخدام ES Module syntax
-import { GoogleGenerativeAI, HarmBlockThreshold, HarmCategory } from '@google/genai'; 
-
-// 🚨 تحديث: استيراد مدير مفاتيح API الذي أنشأناه (سيتطلب تعديل apiKeysManager.js أيضاً)
-import { getGeminiAIInstance, updateApiKeyStatus } from './apiKeysManager.js'; // 🚨 ملاحظة: يجب إضافة .js هنا
+// ثوابت سلامة من حزمة Gemini
+const { HarmBlockThreshold, HarmCategory } = require('@google/generative-ai');
+// استيراد مدير مفاتيح API الذي أنشأناه
+const { getGeminiAIInstance, updateApiKeyStatus } = require('./apiKeysManager');
 
 const app = express();
 
+// Railway يحدد المنفذ عبر ENV، أو نستخدم 3000 كافتراضي محلي
 const port = process.env.PORT || 3000;
 
-app.use(helmet());
+/* ------------------------------------------------------------------
+   ✅ CORS configuration (يدعم Vercel + Railway + localhost) - تم التعديل
+------------------------------------------------------------------- */
 
+// قائمة الأصول (frontends) المسموح لها بالوصول إلى الـ Backend
 const allowedOrigins = [
-  'http://localhost:5173',
-  'http://localhost:3000',
-  'https://quiz-time-tan.vercel.app',
+  'http://localhost:5173', // بيئة تطوير Vite
+  'http://localhost:3000', // قد يكون للواجهة الأمامية المحلية أو لأدوات الاختبار
+  'https://quiz-time-tan.vercel.app/', // الرابط الفعلي للواجهة الأمامية على Vercel
+  // أضف هنا أي روابط Vercel أخرى أو روابط مخصصة للواجهة الأمامية
+  // تم إزالة الرابط القديم quiz-puplic-production.up.railway.app
 ];
 
+// تهيئة CORS middleware بخيارات محددة
 const corsOptions = {
   origin: (origin, callback) => {
+    // السماح بالطلبات التي لا تحتوي على Origin (مثل Postman/curl للاختبار)
+    // أو إذا كان الـ origin موجودًا في القائمة المسموح بها صراحةً
+    // أو إذا كان ينتهي بـ .vercel.app (لأي deploy من Vercel)
+    // أو إذا كان ينتهي بـ .up.railway.app (للتواصل الداخلي أو مشاريع Railway الأخرى)
     if (!origin || allowedOrigins.includes(origin) || origin.endsWith('.vercel.app') || origin.endsWith('.up.railway.app')) {
       callback(null, true);
     } else {
+      // رفض الطلب إذا لم يكن Origin مسموحًا به
       console.warn(`CORS: Not allowed by origin policy - ${origin}`);
       callback(new Error(`Not allowed by CORS: ${origin}`));
     }
   },
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
-  credentials: true,
-  optionsSuccessStatus: 204,
+  credentials: true, // مهم جداً إذا كنت ستستخدم ملفات تعريف الارتباط (cookies) أو رؤوس Authorization
+  optionsSuccessStatus: 204, // رمز الحالة لنجاح طلب OPTIONS (Preflight)
 };
 
+// تفعيل CORS middleware في بداية التطبيق وقبل تعريف أي مسارات
 app.use(cors(corsOptions));
 
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+// لا تقم بإضافة الـ middleware اليدوي لـ CORS بعد استخدام حزمة cors
+// الكود اليدوي الذي كان هنا تم حذفه لأنه يتعارض أو أقل كفاءة من حزمة cors
 
+/* ------------------------------------------------------------------
+   Parsers & Uploads
+------------------------------------------------------------------- */
+app.use(express.json({ limit: '10mb' })); // لدعم JSON bodies
+app.use(express.urlencoded({ extended: true, limit: '10mb' })); // لدعم URL-encoded bodies
+
+// إعداد Multer لتخزين الملفات في الذاكرة (مؤقت)
 const upload = multer({ storage: multer.memoryStorage() });
 
-const settingsSchema = Joi.object({
-  quizLanguage: Joi.string().valid('en', 'ar').default('en'),
-  explanationLanguage: Joi.string().valid('en', 'ar').default('en'),
-  difficulty: Joi.string().valid('easy', 'medium', 'hard').default('medium'),
-  numMCQs: Joi.number().integer().min(0).max(50).default(0),
-  numCases: Joi.number().integer().min(0).max(10).default(0),
-  questionsPerCase: Joi.number().integer().min(0).max(10).default(0),
-  numImageQuestions: Joi.number().integer().min(0).max(5).default(0),
-  questionTypes: Joi.array().items(Joi.string().valid('MCQ', 'TrueFalse', 'ShortAnswer', 'Ordering', 'Matching')).default(['MCQ']),
-  temperature: Joi.number().min(0).max(1).default(0.7),
-  topP: Joi.number().min(0).max(1).default(0.9),
-  topK: Joi.number().integer().min(1).max(100).default(40),
-  additionalInstructions: Joi.string().allow('').optional(),
-});
-
-const quizRequestSchema = Joi.object({
-  prompt: Joi.string().allow('').max(40000).optional(),
-  settings: Joi.string().required(),
-  imageUsage: Joi.string().valid('link', 'about', 'auto').optional().default('auto'),
-});
-
-const validateQuizRequest = (req, res, next) => {
-  const { error } = quizRequestSchema.validate(req.body);
-  if (error) {
-    console.error('Validation Error:', error.details[0].message);
-    return res.status(400).json({ error: `Validation failed: ${error.details[0].message}` });
-  }
-
-  try {
-    req.body.parsedSettings = JSON.parse(req.body.settings);
-    const { error: settingsError } = settingsSchema.validate(req.body.parsedSettings);
-    if (settingsError) {
-      console.error('Settings Validation Error:', settingsError.details[0].message);
-      return res.status(400).json({ error: `Settings validation failed: ${settingsError.details[0].message}` });
-    }
-  } catch (e) {
-    console.error('JSON Parse Error for settings:', e.message);
-    return res.status(400).json({ error: 'Invalid settings format. Settings must be valid JSON string.' });
-  }
-
-  next();
-};
-
+/* ------------------------------------------------------------------
+   ثوابت لأنواع الأسئلة
+------------------------------------------------------------------- */
 const allQuestionTypes = [
   'MCQ',
   'TrueFalse',
@@ -100,6 +76,9 @@ const allQuestionTypes = [
   'Matching',
 ];
 
+/* ------------------------------------------------------------------
+   Utils لمعالجة الملفات (تستقبل Buffer هنا)
+------------------------------------------------------------------- */
 const fileToGenerativePart = async (fileBuffer, mimeType) => {
   return {
     inlineData: {
@@ -123,9 +102,13 @@ const getDocumentText = async (fileBuffer, mimeType) => {
   } else if (mimeType && mimeType.startsWith('text/')) {
     return fileBuffer.toString('utf8');
   }
+  // افتراضيًا: محاولة تحويل أي شيء لنص
   return fileBuffer.toString('utf8');
 };
 
+/* ------------------------------------------------------------------
+   Schema لردّ Gemini (محدد بوضوح)
+------------------------------------------------------------------- */
 const geminiResponseSchema = {
   type: 'OBJECT',
   properties: {
@@ -193,6 +176,9 @@ const geminiResponseSchema = {
   required: ['quizTitle', 'quizData'],
 };
 
+/* ------------------------------------------------------------------
+   Prompt Generator (مفصل وشامل لبروتوكول AI Execution Protocol)
+------------------------------------------------------------------- */
 const getGenerationPrompt = (
   prompt,
   subject,
@@ -259,7 +245,7 @@ Analyze the provided 'User Content' to infer its primary domain (e.g., Medical, 
 1.  **Domain Inference:** Before generating any questions, perform a rapid internal analysis of the 'User Content'. Identify keywords, concepts, and typical structures to determine if it is:
     -   **Medical Content:** Characterized by medical terminology, diseases, treatments, anatomy, physiology, clinical cases, patient scenarios.
     -   **Engineering Content:** Characterized by technical specifications, design principles, calculations, systems, processes, materials, schematics.
-    -   **General Science Content:** Characterised by scientific principles, theories, experiments, natural phenomena, formulas (but not necessarily complex engineering applications).
+    -   **General Science Content:** Characterized by scientific principles, theories, experiments, natural phenomena, formulas (but not necessarily complex engineering applications).
     -   **Other (Default):** If none of the above, treat it as general academic or factual content.
 2.  **Role Adaptation:**
     -   **If Medical Content:** Adopt the role of an "expert medical examinations author specializing in the provided medical sub-domain (e.g., Gynecology, Cardiology, etc., infer from text if not explicit)". Focus on clinical reasoning, diagnosis, management, pathophysiology, and high-stakes information. Case Scenarios are highly applicable.
@@ -372,23 +358,32 @@ app.post(
     { name: 'file', maxCount: 1 },
     { name: 'images', maxCount: 5 },
   ]),
-  validateQuizRequest, // 🛡️ إضافة middleware التحقق من صحة المدخلات
   async (req, res) => {
-    // 🛡️ تم التحقق من صحة prompt, settings, imageUsage بواسطة validateQuizRequest
-    // و parsedSettings متاح الآن في req.body.parsedSettings
-    const { prompt, imageUsage, parsedSettings } = req.body;
+    const { prompt, settings, imageUsage } = req.body; // إضافة imageUsage هنا
     const file =
       req.files && req.files['file'] ? req.files['file'][0] : null;
     const images = req.files && req.files['images'] ? req.files['images'] : [];
 
-    // لم نعد نحتاج إلى JSON.parse(settings) هنا لأن validateQuizRequest قام بذلك
-    // ولم نعد نحتاج إلى التحقق من صحة settings هنا لأن validateQuizRequest قام بذلك
-    // ولم نعد نحتاج إلى التحقق من طول prompt هنا لأن validateQuizRequest قام بذلك (max(40000))
+    let parsedSettings;
+    try {
+      parsedSettings = JSON.parse(settings);
+    } catch (e) {
+      return res
+        .status(400)
+        .json({ error: 'Invalid settings format. Settings must be valid JSON.' });
+    }
 
+    const MAX_TEXT_LENGTH = 40000;
     const MAX_PDF_SIZE_BYTES = 10 * 1024 * 1024; // 10MB
     const MAX_PDF_CHARS = 50000;
-    const MAX_IMAGES = 5; // تم التحقق من عدد الصور بواسطة multer (maxCount: 5)
+    const MAX_IMAGES = 5;
     const MAX_TOTAL_QUESTIONS = 50;
+
+    if (prompt && prompt.length > MAX_TEXT_LENGTH) {
+      return res
+        .status(400)
+        .json({ error: `Prompt text exceeds ${MAX_TEXT_LENGTH} characters.` });
+    }
 
     let fileContent = null;
     if (file) {
@@ -409,17 +404,16 @@ app.post(
       }
     }
 
-    // 🛡️ تم التحقق من عدد الصور بواسطة multer (maxCount: 5)
-    // if (images.length > MAX_IMAGES) {
-    //   return res
-    //     .status(400)
-    //     .json({ error: `Maximum ${MAX_IMAGES} images allowed.` });
-    // }
+    if (images.length > MAX_IMAGES) {
+      return res
+        .status(400)
+        .json({ error: `Maximum ${MAX_IMAGES} images allowed.` });
+    }
 
-    const totalMCQs = parsedSettings.numMCQs || 0;
-    const totalCases = parsedSettings.numCases || 0;
-    const qPerCase = parsedSettings.questionsPerCase || 0;
-    const totalImageQuestions = parsedSettings.numImageQuestions || 0;
+    const totalMCQs = parseInt(parsedSettings.numMCQs, 10) || 0;
+    const totalCases = parseInt(parsedSettings.numCases, 10) || 0;
+    const qPerCase = parseInt(parsedSettings.questionsPerCase, 10) || 0;
+    const totalImageQuestions = parseInt(parsedSettings.numImageQuestions, 10) || 0;
     const calculatedTotalQuestions =
       totalMCQs + totalCases * qPerCase + totalImageQuestions;
 
@@ -436,15 +430,14 @@ app.post(
     let usedKey = null;
 
     try {
-      // 🚨 تم تمرير GoogleGenerativeAI كبارامتر
-      const { ai, key } = getGeminiAIInstance(GoogleGenerativeAI); 
+      const { ai, key } = getGeminiAIInstance(); // استخدام مدير المفاتيح
       aiInstance = ai;
       usedKey = key;
 
       const generationPrompt = getGenerationPrompt(
         prompt,
         null, // Subject
-        parsedSettings, // استخدام parsedSettings مباشرة
+        parsedSettings,
         fileContent,
         images.length,
         imageUsage // تمرير imageUsage هنا
@@ -455,13 +448,12 @@ app.post(
         promptParts.push(await fileToGenerativePart(img.buffer, img.mimetype));
       }
 
-      // 🚀 تحديث: استخدام GoogleGenerativeAI مباشرة
       const model = aiInstance.getGenerativeModel({
         model: 'gemini-2.5-flash', // استخدام الموديل المحدد
       });
 
       const response = await model.generateContent({
-        contents: [{ role: 'user', parts: promptParts }], 
+        contents: { parts: promptParts },
         generationConfig: {
           responseMimeType: 'application/json',
           responseSchema: geminiResponseSchema,
@@ -581,5 +573,3 @@ app.post(
 app.listen(port, () => {
   console.log(`Quiz Time Backend Server running on port ${port}`);
 });
-
-  [file content end]
