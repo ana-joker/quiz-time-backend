@@ -24,7 +24,7 @@ const port = process.env.PORT || 3000;
 const allowedOrigins = [
   'http://localhost:5173', // بيئة تطوير Vite
   'http://localhost:3000', // قد يكون للواجهة الأمامية المحلية أو لأدوات الاختبار
-  'https://quiz-time-12echrk3g-dr-ahmed-alenanys-projects.vercel.app', // الرابط الفعلي للواجهة الأمامية على Vercel
+  'https://quiz-time-tan.vercel.app/', // الرابط الفعلي للواجهة الأمامية على Vercel
   // أضف هنا أي روابط Vercel أخرى أو روابط مخصصة للواجهة الأمامية
   // تم إزالة الرابط القديم quiz-puplic-production.up.railway.app
 ];
