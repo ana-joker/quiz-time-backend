@@ -476,7 +476,8 @@ app.post(
     let usedKey = null;
 
     try {
-      const { ai, key } = getGeminiAIInstance(); // استخدام مدير المفاتيح
+      // 🚨 تمرير GoogleGenerativeAI كبارامتر
+      const { ai, key } = getGeminiAIInstance(GoogleGenerativeAI); 
       aiInstance = ai;
       usedKey = key;
 
