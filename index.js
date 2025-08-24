@@ -13,46 +13,47 @@ const { getGeminiAIInstance, updateApiKeyStatus } = require('./apiKeysManager');
 
 const app = express();
 
-// Railway يحدد المنفذ عبر ENV، أو نستخدم 8080 كافتراضي محلي الآن
-const port = process.env.PORT || 8080; 
+// Railway يحدد المنفذ عبر ENV، أو نستخدم 3000 كافتراضي محلي
+const port = process.env.PORT || 3000;
 
 /* ------------------------------------------------------------------
-   ✅ CORS configuration (النسخة المبسطة والفعالة)
+   ✅ CORS configuration (يدعم Vercel + Railway + localhost) - تم التعديل
 ------------------------------------------------------------------- */
-app.use(cors({
+
+// قائمة الأصول (frontends) المسموح لها بالوصول إلى الـ Backend
+const allowedOrigins = [
+  'http://localhost:5173', // بيئة تطوير Vite
+  'http://localhost:3000', // قد يكون للواجهة الأمامية المحلية أو لأدوات الاختبار
+  'https://quiz-time-12echrk3g-dr-ahmed-alenanys-projects.vercel.app', // الرابط الفعلي للواجهة الأمامية على Vercel
+  // أضف هنا أي روابط Vercel أخرى أو روابط مخصصة للواجهة الأمامية
+];
+
+// تهيئة CORS middleware بخيارات محددة
+const corsOptions = {
   origin: (origin, callback) => {
-    if (!origin) return callback(null, true); // للسماح بـ Postman / curl أو الطلبات التي لا تحتوي على Origin
-
-    try {
-      const url = new URL(origin);
-      const host = url.hostname;
-
-      // السماح بأي subdomain من Vercel أو Railway (http و https)
-      if (host.endsWith(".vercel.app") || host.endsWith(".up.railway.app")) {
-        return callback(null, true);
-      }
-
-      // السماح بالـ localhost أثناء التطوير (http و https)
-      // قد تحتاج لتحديد المنافذ التي تعمل عليها الواجهة الأمامية المحلية هنا
-      if (origin.startsWith("http://localhost:") || origin.startsWith("https://localhost:")) {
-        return callback(null, true);
-      }
-
-      // غير كده مرفوض
+    // السماح بالطلبات التي لا تحتوي على Origin (مثل Postman/curl للاختبار)
+    // أو إذا كان الـ origin موجودًا في القائمة المسموح بها صراحةً
+    // أو إذا كان ينتهي بـ .vercel.app (لأي deploy من Vercel)
+    // أو إذا كان ينتهي بـ .up.railway.app (للتواصل الداخلي أو مشاريع Railway الأخرى)
+    if (!origin || allowedOrigins.includes(origin) || origin.endsWith('.vercel.app') || origin.endsWith('.up.railway.app')) {
+      callback(null, true);
+    } else {
+      // رفض الطلب إذا لم يكن Origin مسموحًا به
       console.warn(`CORS: Not allowed by origin policy - ${origin}`);
-      return callback(new Error("Not allowed by CORS"));
-    } catch (err) {
-      console.error(`CORS: Invalid origin URL - ${origin}`, err);
-      return callback(new Error("Invalid origin"));
+      callback(new Error(`Not allowed by CORS: ${origin}`));
     }
   },
-  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"], // أضفت X-Requested-With
-  credentials: false, // لو عايز تبعت Cookies عبر الدومينات (مثل JWT في Cookies) خليه true
-}));
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  credentials: true, // مهم جداً إذا كنت ستستخدم ملفات تعريف الارتباط (cookies) أو رؤوس Authorization
+  optionsSuccessStatus: 204, // رمز الحالة لنجاح طلب OPTIONS (Preflight)
+};
 
-// مهم جداً للـ preflight requests (طلبات OPTIONS) لجميع المسارات
-app.options("*", cors());
+// تفعيل CORS middleware في بداية التطبيق وقبل تعريف أي مسارات
+app.use(cors(corsOptions));
+
+// لا تقم بإضافة الـ middleware اليدوي لـ CORS بعد استخدام حزمة cors
+// الكود اليدوي الذي كان هنا تم حذفه لأنه يتعارض أو أقل كفاءة من حزمة cors
 
 /* ------------------------------------------------------------------
    Parsers & Uploads
