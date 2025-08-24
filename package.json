@@ -2,20 +2,22 @@
   "name": "quiz-time-backend",
   "version": "1.0.0",
   "main": "index.js",
+  "type": "module",  
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node index.js" // قد تحتاج لتغيير أمر البدء على Railway
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "description": "",
   "dependencies": {
-    "@google/genai": "^1.15.0",
+    "@google/genai": "^0.24.1",
     "cors": "^2.8.5",
     "dotenv": "^17.2.1",
     "express": "^5.1.0",
-    "helmet": "^8.1.0",
-    "joi": "^18.0.1",
+    "helmet": "^7.1.0",
+    "joi": "^17.13.3",
     "multer": "^2.0.2",
     "pdf-parse": "^1.1.1"
   }

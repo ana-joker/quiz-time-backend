@@ -1,80 +1,54 @@
-// index.js
-require('dotenv').config(); // تحميل متغيرات البيئة من ملف .env
+// index.js (بعد التحويل إلى ES Module)
 
-const express = require('express');
-const cors = require('cors'); // مكتبة CORS
-const multer = require('multer');
-const pdf = require('pdf-parse'); // مكتبة لمعالجة PDF
-const helmet = require('helmet'); // 🔒 إضافة Helmet للأمان
-const Joi = require('joi'); // 🛡️ إضافة Joi للتحقق من صحة المدخلات
+import 'dotenv/config'; // 🚨 تحديث: استخدام dotenv/config لـ ES Modules
 
-// 🚨🚨🚨 التصحيح النهائي لـ SyntaxError: Unexpected identifier 🚨🚨🚨
-// استيراد HarmBlockThreshold و HarmCategory بشكل منفصل
-const { HarmBlockThreshold, HarmCategory } = require('@google/genai'); 
-// استيراد GoogleGenerativeAI بشكل منفصل لضمان التوافق مع CommonJS في Node.js v18
-const { GoogleGenerativeAI } = require('@google/genai'); 
+import express from 'express';
+import cors from 'cors';
+import multer from 'multer';
+import pdf from 'pdf-parse';
+import helmet from 'helmet';
+import Joi from 'joi';
 
-// استيراد مدير مفاتيح API الذي أنشأناه
-const { getGeminiAIInstance, updateApiKeyStatus } = require('./apiKeysManager');
+// 🚨 تحديث: استيراد من الحزمة الجديدة باستخدام ES Module syntax
+import { GoogleGenerativeAI, HarmBlockThreshold, HarmCategory } from '@google/genai'; 
+
+// 🚨 تحديث: استيراد مدير مفاتيح API الذي أنشأناه (سيتطلب تعديل apiKeysManager.js أيضاً)
+import { getGeminiAIInstance, updateApiKeyStatus } from './apiKeysManager.js'; // 🚨 ملاحظة: يجب إضافة .js هنا
 
 const app = express();
 
-// Railway يحدد المنفذ عبر ENV، أو نستخدم 3000 كافتراضي محلي
 const port = process.env.PORT || 3000;
 
-/* ------------------------------------------------------------------
-   🔒 إضافة Helmet (طبقة أمان أساسية)
-------------------------------------------------------------------- */
 app.use(helmet());
 
-/* ------------------------------------------------------------------
-   ✅ CORS configuration (يدعم Vercel + Railway + localhost) - تم التعديل
-------------------------------------------------------------------- */
-
-// قائمة الأصول (frontends) المسموح لها بالوصول إلى الـ Backend
 const allowedOrigins = [
-  'http://localhost:5173', // بيئة تطوير Vite
-  'http://localhost:3000', // قد يكون للواجهة الأمامية المحلية أو لأدوات الاختبار
-  'https://quiz-time-tan.vercel.app', // الرابط الفعلي للواجهة الأمامية على Vercel
-  // أضف هنا أي روابط Vercel أخرى أو روابط مخصصة للواجهة الأمامية
+  'http://localhost:5173',
+  'http://localhost:3000',
+  'https://quiz-time-tan.vercel.app',
 ];
 
-// تهيئة CORS middleware بخيارات محددة
 const corsOptions = {
   origin: (origin, callback) => {
-    // السماح بالطلبات التي لا تحتوي على Origin (مثل Postman/curl للاختبار)
-    // أو إذا كان الـ origin موجودًا في القائمة المسموح بها صراحةً
-    // أو إذا كان ينتهي بـ .vercel.app (لأي deploy من Vercel)
-    // أو إذا كان ينتهي بـ .up.railway.app (للتواصل الداخلي أو مشاريع Railway الأخرى)
     if (!origin || allowedOrigins.includes(origin) || origin.endsWith('.vercel.app') || origin.endsWith('.up.railway.app')) {
       callback(null, true);
     } else {
-      // رفض الطلب إذا لم يكن Origin مسموحًا به
       console.warn(`CORS: Not allowed by origin policy - ${origin}`);
       callback(new Error(`Not allowed by CORS: ${origin}`));
     }
   },
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
-  credentials: true, // مهم جداً إذا كنت ستستخدم ملفات تعريف الارتباط (cookies) أو رؤوس Authorization
-  optionsSuccessStatus: 204, // رمز الحالة لنجاح طلب OPTIONS (Preflight)
+  credentials: true,
+  optionsSuccessStatus: 204,
 };
 
-// تفعيل CORS middleware في بداية التطبيق وقبل تعريف أي مسارات
 app.use(cors(corsOptions));
 
-/* ------------------------------------------------------------------
-   Parsers & Uploads
-------------------------------------------------------------------- */
-app.use(express.json({ limit: '10mb' })); // لدعم JSON bodies
-app.use(express.urlencoded({ extended: true, limit: '10mb' })); // لدعم URL-encoded bodies
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// إعداد Multer لتخزين الملفات في الذاكرة (مؤقت)
 const upload = multer({ storage: multer.memoryStorage() });
 
-/* ------------------------------------------------------------------
-   🛡️ Schema للتحقق من صحة المدخلات باستخدام Joi
-------------------------------------------------------------------- */
 const settingsSchema = Joi.object({
   quizLanguage: Joi.string().valid('en', 'ar').default('en'),
   explanationLanguage: Joi.string().valid('en', 'ar').default('en'),
@@ -92,11 +66,10 @@ const settingsSchema = Joi.object({
 
 const quizRequestSchema = Joi.object({
   prompt: Joi.string().allow('').max(40000).optional(),
-  settings: Joi.string().required(), // نتحقق هنا أنه string، وسنقوم بتحليله لاحقًا في الـ Controller
+  settings: Joi.string().required(),
   imageUsage: Joi.string().valid('link', 'about', 'auto').optional().default('auto'),
 });
 
-// 🛡️ Middleware للتحقق من صحة المدخلات
 const validateQuizRequest = (req, res, next) => {
   const { error } = quizRequestSchema.validate(req.body);
   if (error) {
@@ -104,10 +77,8 @@ const validateQuizRequest = (req, res, next) => {
     return res.status(400).json({ error: `Validation failed: ${error.details[0].message}` });
   }
 
-  // بعد التحقق الأساسي، نقوم بتحليل الـ settings JSON
   try {
     req.body.parsedSettings = JSON.parse(req.body.settings);
-    // ثم نتحقق من صحة الـ parsedSettings
     const { error: settingsError } = settingsSchema.validate(req.body.parsedSettings);
     if (settingsError) {
       console.error('Settings Validation Error:', settingsError.details[0].message);
@@ -121,10 +92,6 @@ const validateQuizRequest = (req, res, next) => {
   next();
 };
 
-
-/* ------------------------------------------------------------------
-   ثوابت لأنواع الأسئلة
-------------------------------------------------------------------- */
 const allQuestionTypes = [
   'MCQ',
   'TrueFalse',
@@ -133,9 +100,6 @@ const allQuestionTypes = [
   'Matching',
 ];
 
-/* ------------------------------------------------------------------
-   Utils لمعالجة الملفات (تستقبل Buffer هنا)
-------------------------------------------------------------------- */
 const fileToGenerativePart = async (fileBuffer, mimeType) => {
   return {
     inlineData: {
@@ -159,13 +123,9 @@ const getDocumentText = async (fileBuffer, mimeType) => {
   } else if (mimeType && mimeType.startsWith('text/')) {
     return fileBuffer.toString('utf8');
   }
-  // افتراضيًا: محاولة تحويل أي شيء لنص
   return fileBuffer.toString('utf8');
 };
 
-/* ------------------------------------------------------------------
-   Schema لردّ Gemini (محدد بوضوح)
-------------------------------------------------------------------- */
 const geminiResponseSchema = {
   type: 'OBJECT',
   properties: {
@@ -233,13 +193,10 @@ const geminiResponseSchema = {
   required: ['quizTitle', 'quizData'],
 };
 
-/* ------------------------------------------------------------------
-   Prompt Generator (مفصل وشامل لبروتوكول AI Execution Protocol)
-------------------------------------------------------------------- */
 const getGenerationPrompt = (
   prompt,
   subject,
-  parsedSettings, // سنستخدم هذا مباشرة
+  parsedSettings,
   fileContent,
   imagesCount,
   imageUsage
@@ -302,7 +259,7 @@ Analyze the provided 'User Content' to infer its primary domain (e.g., Medical, 
 1.  **Domain Inference:** Before generating any questions, perform a rapid internal analysis of the 'User Content'. Identify keywords, concepts, and typical structures to determine if it is:
     -   **Medical Content:** Characterized by medical terminology, diseases, treatments, anatomy, physiology, clinical cases, patient scenarios.
     -   **Engineering Content:** Characterized by technical specifications, design principles, calculations, systems, processes, materials, schematics.
-    -   **General Science Content:** Characterized by scientific principles, theories, experiments, natural phenomena, formulas (but not necessarily complex engineering applications).
+    -   **General Science Content:** Characterised by scientific principles, theories, experiments, natural phenomena, formulas (but not necessarily complex engineering applications).
     -   **Other (Default):** If none of the above, treat it as general academic or factual content.
 2.  **Role Adaptation:**
     -   **If Medical Content:** Adopt the role of an "expert medical examinations author specializing in the provided medical sub-domain (e.g., Gynecology, Cardiology, etc., infer from text if not explicit)". Focus on clinical reasoning, diagnosis, management, pathophysiology, and high-stakes information. Case Scenarios are highly applicable.
